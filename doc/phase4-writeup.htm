@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CS 1653 Project P4 Writeup</title>
+  <style>
+/* BEGIN CHANGES HERE */
+
+/* In this section, you may add CSS styling if desired */
+header {
+  text-align: center;
+}
+img {
+  max-width: 100vw;
+}
+span.code {
+  font-family: Courier;
+}
+pre {
+  /*max-width: 80vw;*/
+  word-wrap: break-word;
+}
+/* END CHANGES HERE */
+  </style>
+  <body>
+    <header>
+      <h1>CS 1653 Project P4 Writeup</h1>
+      <h2>
+<!-- BEGIN CHANGES HERE -->
+
+Jarod Latta - JAL263@pitt.edu<br>
+Nate Ackerman - NGA5@pitt.edu<br>
+Niko Nikolopoulos - NMN27@pitt.edu
+
+<!-- END CHANGES HERE -->
+      </h2>
+    </header>
+    <section id="overview">
+      <h2>Overview</h2>
+<!-- BEGIN CHANGES HERE -->
+
+<p>For this phase, we will be using all of the same techniques that we used in the last phase. Namely, our signed DH exchange will use symmetric and asymmetric cryptography. The DH keys will be generated from the same group as the last phase, which is known to be safe. They will be encrypted via 8192 bit RSA and will be used to derive 256 bit AES keys. We will still be using signing of tokens which will include verification of the file server that the token will be for. This signing will be done using RSA as well, with a hash over the public key for the file server. The hash will be done with SHA256.</p>
+
+<!-- END CHANGES HERE -->
+    </section>
+    <section id="threat5">
+      <h2>Threat T5: Message Reorder, Replay, or Modification</h2>
+<!-- BEGIN CHANGES HERE -->
+
+
+<p>In this threat, we are worried about an adversary being able to use the messages being sent in the network to subvert the normal workflow, even if they do not know the contents of the messages because they are encrypted. Since we do not send more than one message at a time without an ack, message reorder is not an issue. Upon detection of garbage, we close the connection. What we need to worry about is a very specific replay. General replay is not an issue as the encrypted channel uses a different key each time, and later sessions cannot use encrypted messages from older sessions. However, during the same session, while transferring a file, a duplicated message could insert duplicate data into a file that is being uploaded or downloaded. It is also possible that large file chunks could be modified.
+</p>
+
+<p>To mitigate this, we will use a sequence number for each message in the socket connection. This sequence will be increased by one for each message. The sequence number will be stored by each connection object and included in the envelope sent. This will allow for the detection of a duplicate message. An adversary will not be able to tamper with this number as it will be encrypted in a message for which they do not have the key. The second message in the system will be the only one that could be changed, but this is easy to detect. We will also use a MAC for each message over the bytes of the serialized object to detect tampering and disconnect upon detection.</p>
+<img src="t5-diagram.png">
+
+<!-- END CHANGES HERE -->
+    </section>
+    <section id="threat6">
+      <h2>Threat T6: File Leakage</h2>
+<!-- BEGIN CHANGES HERE -->
+
+<p>In this scenario, we are concerned with the file servers leaking information to parties that should not have access to the information. Since the information is stored unencrypted, if a File Server were to leak a file that is meant for Group A, and it ends up being seen by Group B, the confidentiality of that information has been compromised. We are also concerned with the access to be had by members of a group that leave the group. If a user leaves a group they should not be able to go back in and view files added since their departure.</p>
+<p>In order to mitigate this threat we are implementing a mechanism in which the files will be stored on file servers encrypted. Since the Group Server is the only party that the users can trust, encryption keys will be stored on the group server. The group server remembers two values: a 256 bit AES key k and a number n. n is the number of times that k must be hashed (SHA-256) for the current file encryption key. When a user gets their token from the Group Server, they will also receive k’ and n, where k’ is the nth hash of k. The user can use k’ to encrypt their files and they store that encrypted version on any File Server, along with n. When a user wants to decrypt a file, they can download the file and check the File Server’s n for that file (nFS). If nFS is greater than the user’s n, they can simply hash the extra times necessary for that version of the key and decrypt the file. Whenever a user is removed from the group, the Group Server decrements their n, which causes newly issued tokens to have a new and unique version of the encryption key which can be used to derive previous keys but not future keys.
+</p>
+<p>This approach means that any user added to a group even briefly may gain access to all of that group’s passed files, but upon removal will be completely unable to decrypt files that were encrypted after their departure. Note, the responsibility for the encryption is on the shoulders of the client. If the client fails to properly encrypt, they may create their own vulnerability or make their encrypted file irrecoverable.
+</p>
+<img src="t6-diagram.png">
+<!-- END CHANGES HERE -->
+    </section>
+    <section id="threat7">
+      <h2>Threat T7: Token Theft</h2>
+<!-- BEGIN CHANGES HERE -->
+
+<p>
+  In order to prevent the theft of tokens, we have decided that a usable token must specify a recipient File Server on which that token can be used. This “recipient” field is populated with a hash (SHA-256) of that File Server’s public key which the Client provides to the Group Server when they ask for a token for the purpose of speaking with a File Server. The Client can receive a token with no recipient field, but a valid File Server should immediately reject that connection. When the Client wants to speak to a File Server, they must ask the trusted Group Server to provide them with a recipient field which is the hash, as described before, signed by the Group Server. The signature prevents the Client from being able to alter this value after receipt.
+</p>
+<p>
+  To continue upholding T2 from the previous phase, the signed hash of the recipient File Server’s public key needs to be incorporated into the token’s signature. In order to handle this, a “recipient” field will be added to the <span class="code">toSignatureString</span> function's output that is populated with the hexadecimal representation of the signature (to avoid any character complexity). The signature of this further prevents tampering with the token after receipt.
+</p>
+<p>
+  With this alteration to the Token, a genuine File Server, upon receiving a request from a Client, will check that the Client’s token is valid by first checking the that recipient field matches their public key and is signed by the Group Server, then checking that the Client has the necessary permissions for the action that they are requesting to perform and an unaltered token (which is done by comparing the signature of the Token to the output of the <span class="code">toSignatureString</span> function as described in T2). This means that the only time that stealing a token by having it leaked from a File Server would benefit an attacker was if they were going to use the stolen token on the same File Server that leaked it or another disingenuous File Server that wasn’t checking permissions anyway.
+</p>
+<p>
+  In addition to the aformentioned protections to the token, it also includes an expiration. When the token is created, this expiration is calculated to be 60 minutes from when the token is issued. This value is not subject to change and is hard coded into the <span class="code">Token</span> class as a final int so it cannot be altered. The expiration date is also included in the signature of the token which additionally reinforces its immutability.
+</p>
+<p>
+  The <span class="code">toSignatureString</span> function's output, if the token was created for an admin named Bill at 16:15:00 on 2020-11-13, looks like this:
+  <pre>"{"issuer":"alpha","subject":"Bill","recipient":"","expiration":"2020-11-13 17:15:00","groups":["ADMIN"]}"</pre>
+  Note that the <span class="code">recipient</span> field is currently empty. That is because at issuance, a token is given no recipient field. The user must individually request their recipient field to be altered (and signed) each time they wish to connect to a new File Server. If the user did populate their recipient field, it would look something like this:
+  <pre>"{"issuer":"alpha","subject":"Bill","recipient":"0x48B9C79F0C97C8E0A264A90376...","expiration":"2020-11-13 17:15:00","groups":["ADMIN"]}"</pre>
+  The recipient field is truncated here because of its length (2050 characters in hexadecimal). In order to be able to sign this string, because it is well over 8192 bits, we first hash (SHA-256) the string, then sign that and place it into the signature field. This hash happens regardless of whether the recipient field is populated or not.
+</p>
+Here we see the checks that an authentic File Server does in order to authenticate the user. The K that is being used to encrypt the Token is the session key that was negotiated with the File Server.
+
+<img src="t7-diagram.png">
+
+<!-- END CHANGES HERE -->
+    </section>
+    <section id="discussion">
+      <h2>Discussion</h2>
+<!-- BEGIN CHANGES HERE -->
+
+<p>
+  Each of the threats for this phase were considered and addressed independently of each other, but with respect to our previous implementations. Because we were using public keys for our servers, we were able to designate a recipient field on our tokens with ease. Because we were already using a unique session key from a Diffie-Hellman key exchange, the only change we needed to make to prevent reorder, replay, or modifications to our traffic was add a sequence number to our packets and MAC them so that they couldn't be invalidated via random bit flipping.
+</p>
+
+<p>
+  In order to prevent file leakage, we implemented a key system that allows any file to be decrypted once you gain access to the group, but after your removal you cannot generate the next key. This uses a re-imagined Lamport password scheme, but originally we thought about having the Group Server hold an encryption key for a group <i>and</i> do every encryption and decryption action for the user. We found this initial approach to be an enormous performance bottleneck in addition to opening us up to a DoS attack (easy to generate nonce files and send, takes time to decrypt). Our thought process moving from that idea was that we still wanted the Group Server to be the only one who knew the key and we didn't want the removal of a member to be a nightmare of re-encrypting files with a new key that has been sent out to different people with potentially overlapping sessions, etc. By allowing for past group members to still be able to decrypt anything posted before their removal, we reached the idea of using the Lamport scheme on the true key and storing a value for the key.
+</p>
+
+<!-- END CHANGES HERE -->
+    </section>
+  </body>
+</html>

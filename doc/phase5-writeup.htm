@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CS 1653 Project P5 Writeup</title>
+  <style>
+/* BEGIN CHANGES HERE */
+
+/* In this section, you may add CSS styling if desired */
+header {
+  text-align: center;
+}
+img {
+  max-width: 100vw;
+}
+/* END CHANGES HERE */
+  </style>
+  <body>
+    <header>
+      <h1>CS 1653 Project P5 Writeup</h1>
+      <h2>
+<!-- BEGIN CHANGES HERE -->
+
+Jarod Latta - JAL263@pitt.edu<br>
+Nate Ackerman - NGA5@pitt.edu<br>
+Niko Nikolopoulos - NMN27@pitt.edu
+
+<!-- END CHANGES HERE -->
+      </h2>
+    </header>
+    <section id="overview">
+      <h2>Overview</h2>
+<!-- BEGIN CHANGES HERE -->
+
+<p>
+  In this phase, we address the threats of the Group Server running on an unsecured machine, DoS attacks against either the Group Server or the File Servers, and the threats of this file sharing system being deployed into a cloud environment where we (the application developers) have little ability to manage and administrate the physical machines that are executing the server applications.
+</p>
+<p>
+  We solve each of these problems in kind by encrypting data anywhere it is in an unmanaged or unsecured space and ensuring that the Servers track the connections that they are receiving only so far as to prevent multiple connections from the same IP at the same time.
+</p>
+
+<!-- END CHANGES HERE -->
+    </section>
+    <section id="threatmodel">
+      <h2>Threat Model</h2>
+<!-- BEGIN CHANGES HERE -->
+
+<p>Define a threat model within which your implementation is subject to attack.
+You may re-use a threat model from another phase of the project, or you may
+define a new threat model (e.g., What if we were worried about more than just
+the file leakage from a file server? What if the group server was mostly
+trusted, but the password file or other state was somehow leaked? What about the
+possibility of DoS or DDoS attacks?). This threat model should be written up in
+the same format as the threat models that you were given for Phases P3 and P4 of
+the project.</p>
+
+<p>
+  <b>Threat T8:</b> The Group Server may run on an untrusted/unsecured machine. After a machine has been designated for the Group Server and the Group Server has been installed on that machine, the files that the Group Server creates to save state may be read by unverified/unidentified/unauthorized parties. The Group Server's integrity should not be violable from an attacker viewing the contents of the Group Server's state files (i.e. the group server's public and private keys, password database, group keys, and group list). An observer may <i>not</i> alter the state of any of these files.
+</p>
+
+<p>
+	<b>Threat T9:</b> In order for the client to communicate with the server, they must first preform a Diffie-Hellman key exchange in order to prevent observers from having any access to the communications. The server does this by receiving a request “DHEXCHANGE” where it generates a DH keypair, a shared secret, and encrypts information using an AES cipher, while also adding a MAC to the message. Since this would be the start of the exchange, the client needs only to send an unencrypted “DHEXCHANGE” request. This would allow the client to overload the server with these requests and connections, and possibly even severely slowing down the machine the server is running on due to the amount of threads being created.
+</p>
+
+<p>
+  <b>Threat T10:</b> There are many reasons we would wish to have cloud-based deployment for the group server. Some of these include: not wanting to deal with uptime, punting the firewall to the cloud provider, or elasticity in running many group servers. In this threat model, we cannot trust the cloud provider with the user’s data. We assume all other trusts remain the same from project 4.
+</p>
+
+<!-- END CHANGES HERE -->
+    </section>
+    <section id="attack">
+      <h2>Attacks</h2>
+<!-- BEGIN CHANGES HERE -->
+
+<p>Write a clear and concise description of the attacks against your
+implementation. Describe each step of the attack, and include protocol diagrams
+to clarify your discussion as needed. Provide evidence for why these attacks are
+possible, and why they represent a threat against your system.</p>
+
+<p>If your group implemented programs to demonstrate your attacks, discuss these
+programs here.</p>
+
+<p>
+  <b>A8:</b> Once the Group Server has started it will save its public and private keys to the disk and then 5 minutes after the Group Server has started, it will autosave its state to the machine. At this time, the public key pair, the password database, group keys, and group list are stored in "plaintext" (binary encoded as Java Objects). Simply reading the contents of the Group Keys file will allow the attacker to utilize the key to decrypt <i>any</i> file stored for that group on any File Server for (in the worst case) the next 19,800 removals of users from that group, which is effectively forever. Or they can even impersonate the Group Server entirely.
+</p>
+
+<p>
+	<b>A9:</b> In order for the adversary to attack the server, all they need to do is open up a new connection on the IP and PORT of the server, and send the unencrypted message in an Envelope object “DHEXCHANGE” Whenever the server receives this message, it will now be forced to do more work than the adversary did in order to send this message. All the adversary would need to do is have a loop in a program constantly creating connections and sending these easy requests as fast as the machine can. The requests will then be processed by the server at a speed slower than they are coming in, having the server create a new thread for each connection. On each of these threads, the server will wait for a response from the client, but the client doesn’t need to send a response which will just leave the server hanging, occupying resources the server could be using for real connections. This attack would now overload our server and eventually slow down the machine to the point where it could potentially crash.
+</p>
+
+<img src="./DOS_ATTACK.png">
+<p>
+  <b>A10:</b> In this threat, we are worried about not being able to trust the operating system, hypervisor, or even BIOS on which the application could be running.  The issue with this is that we cannot trust these machines if we want true privacy for our application. Any attacker who has access to change the kernel of a machine can arbitrarily read any application data from memory. Even physical access to a machine could enable this. The simplest form of attack would be to modify the kernel and expose the memory information to other processes, or log it to files. It would be simple to modify the code that creates a process (kernel/fork.c) to have it share its page tables with a snooping process. Since data in these page tables are in clear text, this would allow theft of user information, or even the keys being used.
+</p>
+
+<!-- END CHANGES HERE -->
+    </section>
+    <section id="countermeasure">
+      <h2>Countermeasures</h2>
+<!-- BEGIN CHANGES HERE -->
+
+<p>Write a clear and concise description of the mechanism that your group
+proposes to address each attack from the previous section. Follow the format
+described in Phases P3 and P4 of the project: describe the mechanism in detail
+(including protocol diagrams as needed) and provide justification for why your
+proposed mechanism is sufficient for addressing the threat that you have
+discovered.</p>
+
+<p>
+  <b>C8:</b> In order to prevent observers from being able to compromise the system by reading the state files from the Group Server, these files will be stored on disk encrypted. The encryption scheme will be AES and utilize a 256-bit key. In order to protect the Group Server's private key, the public key can obviously be public, it will never be stored to the disk. Instead, when the Group Server starts, the administrator will be prompted to enter a password. This password will be used to generate both the AES file encryption key as well as the Group Server's public and private keys. The seed for the key generation will be the bits of the password concatenated with the binary representation of the "state" or "keys" for the generation of the AES state key and the public key pair, respectively. While this only gives us as many bits of randomness as the password's length, this is an enormous improvement over plaintext.
+</p>
+<p>
+  Once the keys are generated, when the autosave function executes, it will use the state key to store the files in an encrypted state. The private key will never be stored on the disk and will remain in memory, while the public key will be stored on disk in an unaltered state so that it can be taken and given to whichever parties require it for connection.
+</p>
+<p>
+  The diagram below demonstrates how this communication proceeds in a stepwise fashion.
+</p>
+<img src="t8-diagram.png">
+
+<p>
+	<b>C9:</b> The mechanism our group will use to mitigate this type of threat will be a new check on incoming connections to see if the server has a current connection with the IP address. In order to implement this mechanism, whenever a new connection is accepted, the server will check a HashSet of all current connections, and if the IP address connecting is not in the set, then the server will add the connection to the set and then continue with it’s normal operations of a DH exchange. If the connection is already in the set, then the server will deny the connection. Whenever a client disconnects, the server will then remove that IP address from the set. This will mitigate the attack because now a use working from one machine will not be able to create multiple DHEXCHANGE requests since they are limited by one IP address. The user does have the potential of using a VPN to change their IP for each request, but at that point, the client would be doing more work than the server per connection being made, making the DOS attack ineffective.
+</p>
+
+<img src="./DOS_COUNTERMEASURE.png">
+<p></p>
+  <b>C10:</b> For our application, we will use secure enclaves, such as Intel SGX. This will allow the data in RAM that needs to be private to remain encrypted while in RAM and only be decrypted within secure enclaves. We do not need to trust any software in the system as hardware will be ensuring that any malicious software would only be able to see encrypted data. Any bus snooping attacks would also be prevented as the data is only decrypted while it is in the cpu package. The data living in the enclave memory cannot be addressed from outside of the enclave. This does make the assumption that we trust intel. We would limit cloud deployment to machines that have support for SGX cpu instructions. Detection of this would happen at application start and the group server would not run on a machine that does not have it. This would require modifications to the program code. Specifically, because the amount of on-chip enclave memory is not much, the whole application should not run using it. We must specify the functions to run within it which are called trusted functions. These will be anything having to do with encryption/decryption keys or user/group/token information. These things will remain encrypted on disk and in RAM. This will ensure that nothing on the system that we want to remain private can be read from outside of our application in the secure enclave. However, one important note is that we cannot hide who (the IP address) is connecting to the group server, as they would be connecting through the cloud provider. This could be done with redirection servers or VPNs, but we will leave this as an exercise for the reader...
+</p>
+<img src="t10-diagram.png">
+<p>Diagram Source: https://www.researchgate.net/publication/317422691_SecureStreams_A_Reactive_Middleware_Framework_for_Secure_Data_Stream_Processing</p>
+
+<!-- END CHANGES HERE -->
+    </section>
+    <section id="discussion">
+      <h2>Discussion</h2>
+<!-- BEGIN CHANGES HERE -->
+
+<p>
+	Our threat models are not based on an entirely realistic environment in which this file sharing system would run. For example, the DOS attack is based on the assumption that the machine running the group or file servers is not powerful enough to withstand such an attack coming from a personal machine. While it is feasable for an attacker to invest enough resources to mount this attack, most of the time this will not be the case. For the other threat models, we do not trust the machine that the group server is running on, which is a very unrealistic scenario. If we were to deploy this file sharing system, the group server being the only trustworthy server, would run on a machine that we all trust in order to optimize the success of this software.
+</p>
+<p>
+	When thinking of ideas for our attacks, our primary method was to make the system as untrusted as possible without making it impossible to secure. We tried to think of scenarios in which the group server could be untrusted but it just didn't work out, but we were able to figure out attacks in which the machine of the group server is untrusted, allowing for some interesting attacks and mechanisms for countering it.
+</p>
+
+<p>Finally, spend a paragraph discussing the interplay between the
+countermeasures for your proposed attacks and your techniques for mitigating
+threats T1–T7 from Phases P3 and P4 of the project. Did you have to design your
+countermeasures in a particular way so as not to re-introduce these older
+threats?</p>
+
+<p>T1: None of our countermeasures impacted this threat</p>
+<p>T2: Now, tokens can't even be stolen from the group server, while maintaining that they can't be modified.</p>
+<p>T3: None of our countermeasures impacted this threat</p>
+<p>T4: None of our countermeasures impacted this threat</p>
+<p>T5: None of our countermeasures impacted this threat</p>
+<p>T6: Now, not only are the shared files not able to be leaked, but neither are the files related to users or groups, as files on disk and in memory are encrypted.</p>
+<p>T7: Now, tokens can also not be stolen from memory in the group server.</p>
+
+<p>If your group implemented the countermeasures or did any extra credit, please
+discuss these additional contributions in this section, as well.</p>
+
+<!-- END CHANGES HERE -->
+    </section>
+  </body>
+</html>

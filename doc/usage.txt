@@ -1,0 +1,20 @@
+FileSharing Usage Information
+
+USAGE:
+ For ease, several bash scripts are included to make working with these applications easier. In
+ order to start the group server, run `startgs.sh [optional_port_number]`. In order to start a
+ file server, run `startfs.sh [optional_port_number]`. On startup, the group server will generate
+ an RSA key-pair. This may take some time, so please be patient. Then the group server will prompt
+ a user to enter account details for the server's initial administrative account. Not supplying a
+ port for either the group server or the file server will result in each server randomly selecting
+ a port to run on.
+
+ When the file server starts up, it will ask for a name. It will then prompt for the path to a
+ group server's public key. This key becomes the only group server from which the file server will
+ accept tokens. The server will also spend some time generating an RSA key-pair.
+
+ After the servers are up and running, you can launch the command line interface using
+ `startcli.sh`. This will ask you for your username and password, then connection information for
+ the group server. If all of these details are correct, you will be authenticated, receive a token
+ from the group server, and be free to use the CLI. Otherwise an error will be displayed and the
+ CLI will stop.
